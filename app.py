@@ -29,8 +29,8 @@ w_barrier = st.sidebar.slider("Barrier Penalty Weight (Stairs/Curb)", 50, 500, 2
 w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0, 100, 20)
 
 with st.spinner("Loading OpenStreetMap Network..."):
-    G = load_map_graph(lat, lon, radius)
-
+   # Direct ox.graph_from_point-ku padhilaa idha use pannunga:
+        G = get_graph(lat, lon, radius)
 nodes = list(G.nodes())
 
 # Routing Function

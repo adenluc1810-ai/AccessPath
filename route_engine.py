@@ -1,10 +1,13 @@
+import streamlit as st
 import osmnx as ox
 import networkx as nx
 
-# Enable local caching to prevent API timeout / rate limiting
-ox.settings.use_cache = True
-ox.settings.user_agent = "AccessPath_Pedestrian_App_v1"
-ox.settings.timeout = 180
+@st.cache_data(show_spinner="Downloading street network...")
+def get_graph(lat, lon, dist):
+    ox.settings.user_agent = "AccessPathPedestrianApp/1.0"
+    ox.settings.timeout = 180
+    G = ox.graph_from_point((lat, lon), dist=dist, network_type="walk")
+    return G
 
 print("1. Downloading pedestrian graph for routing test...")
 
