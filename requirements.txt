@@ -1,10 +1,7 @@
+streamlit
 osmnx
 networkx
-streamlit
 folium
 streamlit-folium
-geopandas
-pandas
-matplotlib
-scipy
 geopy
+streamlit-js-eval

@@ -4,12 +4,13 @@ import networkx as nx
 import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
+from streamlit_js_eval import get_geolocation
 
 # Streamlit Page Config
-st.set_page_config(page_title="AccessPath - Google Maps View", layout="wide")
+st.set_page_config(page_title="AccessPath - Live GPS Navigation", layout="wide")
 
-st.title("♿ AccessPath: Uncertainty-Aware Pedestrian Route Planner")
-st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Green)**.")
+st.title("♿ AccessPath: Google Maps Style GPS Route Planner")
+st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Blue)** with **Live GPS Auto-Detect**.")
 
 # OSMnx Settings
 ox.settings.user_agent = "AccessPathPedestrianApp/1.0"
@@ -44,9 +45,23 @@ def get_nearest_node(G, lat, lon):
 def load_map_graph(lat, lon, radius):
     return ox.graph_from_point((lat, lon), dist=radius, network_type="walk", truncate_by_edge=False)
 
-# Sidebar Configuration - Search Place Names
+# Sidebar Configuration - Search Place Names & Live GPS
 st.sidebar.header("📍 Route Search")
-start_place = st.sidebar.text_input("Start Location Name", value="Chennai Central, Chennai")
+
+# Live GPS Button
+use_gps = st.sidebar.button("📡 Detect My Live GPS Location")
+start_lat, start_lon = None, None
+
+if use_gps:
+    location = get_geolocation()
+    if location and 'coords' in location:
+        start_lat = location['coords']['latitude']
+        start_lon = location['coords']['longitude']
+        st.sidebar.success(f"GPS Found: {start_lat:.4f}, {start_lon:.4f}")
+    else:
+        st.sidebar.warning("Please allow location permission in browser.")
+
+start_place = st.sidebar.text_input("Start Location Name", value="Chennai Central, Chennai" if not start_lat else f"{start_lat:.4f}, {start_lon:.4f}")
 dest_place = st.sidebar.text_input("Destination Name", value="Ripon Building, Chennai")
 
 radius = st.sidebar.slider("Map Radius (meters)", min_value=300, max_value=1200, value=600, step=100)
@@ -55,8 +70,10 @@ st.sidebar.header("⚙️ Accessibility Weights")
 w_barrier = st.sidebar.slider("Barrier Penalty Weight (Stairs/Curb)", 50, 500, 200)
 w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0, 100, 20)
 
-# Resolve Start and Destination Coordinates
-start_lat, start_lon = get_lat_lon(start_place)
+# Resolve Start and Destination Coordinates if not set by GPS
+if not start_lat or not start_lon:
+    start_lat, start_lon = get_lat_lon(start_place)
+
 dest_lat, dest_lon = get_lat_lon(dest_place)
 
 if not start_lat or not start_lon:
@@ -67,7 +84,7 @@ if not dest_lat or not dest_lon:
 center_lat = (start_lat + dest_lat) / 2
 center_lon = (start_lon + dest_lon) / 2
 
-with st.spinner("⚡ Fetching Street Network..."):
+with st.spinner("⚡ Fetching Street Network & Updating Route..."):
     try:
         G = load_map_graph(center_lat, center_lon, radius)
     except Exception as e:
@@ -120,7 +137,7 @@ if orig_node and dest_node and orig_node != dest_node:
     # Start and Destination Markers
     folium.Marker(
         orig_pos, 
-        popup=f"📍 <b>Start:</b> {start_place}", 
+        popup=f"📍 <b>Current / Start:</b> {start_place}", 
         tooltip="Start Location",
         icon=folium.Icon(color="blue", icon="play")
     ).add_to(m)
