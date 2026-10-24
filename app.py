@@ -7,10 +7,10 @@ from geopy.geocoders import Nominatim
 from streamlit_js_eval import get_geolocation
 
 # Streamlit Page Config
-st.set_page_config(page_title="AccessPath - Live GPS Navigation", layout="wide")
+st.set_page_config(page_title="AccessPath", layout="wide")
 
-st.title("♿ AccessPath: Google Maps Style GPS Route Planner")
-st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Blue)** with **Live GPS Auto-Detect**.")
+st.title("♿ AccessPath")
+st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Blue)**.")
 
 # OSMnx Settings
 ox.settings.user_agent = "AccessPathPedestrianApp/1.0"
@@ -70,7 +70,7 @@ st.sidebar.header("⚙️ Accessibility Weights")
 w_barrier = st.sidebar.slider("Barrier Penalty Weight (Stairs/Curb)", 50, 500, 200)
 w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0, 100, 20)
 
-# Resolve Start and Destination Coordinates if not set by GPS
+# Resolve Start and Destination Coordinates
 if not start_lat or not start_lon:
     start_lat, start_lon = get_lat_lon(start_place)
 
@@ -123,7 +123,7 @@ if orig_node and dest_node and orig_node != dest_node:
     orig_pos = (G.nodes[orig_node]['y'], G.nodes[orig_node]['x'])
     dest_pos = (G.nodes[dest_node]['y'], G.nodes[dest_node]['x'])
 
-    # EXACT GOOGLE MAPS TILE LAYER
+    # Google Maps Tile Layer
     m = folium.Map(location=[center_lat, center_lon], zoom_start=16, tiles=None)
 
     folium.TileLayer(
@@ -149,7 +149,7 @@ if orig_node and dest_node and orig_node != dest_node:
         icon=folium.Icon(color="red", icon="flag")
     ).add_to(m)
 
-    # Plot Routes (Google style thick line)
+    # Plot Routes
     folium.PolyLine(shortest_coords, color="#EA4335", weight=7, opacity=0.8, tooltip="Standard Shortest Path (Red)").add_to(m)
     folium.PolyLine(accessible_coords, color="#1A73E8", weight=7, opacity=0.9, tooltip="Accessible Path (Blue)").add_to(m)
 
