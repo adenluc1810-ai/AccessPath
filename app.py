@@ -4,6 +4,7 @@ import networkx as nx
 import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
+import math
 
 # Streamlit Page Config
 st.set_page_config(page_title="AccessPath - Google Maps Style", layout="wide")
@@ -28,12 +29,27 @@ def get_lat_lon(place_name):
         pass
     return None, None
 
-# Fast Cached Map Graph Fetcher (No water crossing)
+# Pure Python Nearest Node Finder (Avoids OSMnx scipy dependency error)
+def get_nearest_node(G, lat, lon):
+    best_node = None
+    min_dist = float('inf')
+    for n, data in G.nodes(data=True):
+        n_lat = data.get('y')
+        n_lon = data.get('x')
+        if n_lat is not None and n_lon is not None:
+            # Euclidean distance approximation for fast lookup
+            d = (n_lat - lat)**2 + (n_lon - lon)**2
+            if d < min_dist:
+                min_dist = d
+                best_node = n
+    return best_node
+
+# Fast Cached Map Graph Fetcher
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_map_graph(lat, lon, radius):
     return ox.graph_from_point((lat, lon), dist=radius, network_type="walk", truncate_by_edge=False)
 
-# Sidebar Configuration - Google Maps Style Inputs
+# Sidebar Configuration - Search Place Names
 st.sidebar.header("📍 Route Search")
 start_place = st.sidebar.text_input("Start Location Name", value="Chennai Central, Chennai")
 dest_place = st.sidebar.text_input("Destination Name", value="Ripon Building, Chennai")
@@ -48,7 +64,7 @@ w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0
 start_lat, start_lon = get_lat_lon(start_place)
 dest_lat, dest_lon = get_lat_lon(dest_place)
 
-# Fallback to default Chennai Central if geocoding fails
+# Fallback coordinates if search fails
 if not start_lat or not start_lon:
     start_lat, start_lon = 13.0827, 80.2707
 if not dest_lat or not dest_lon:
@@ -59,7 +75,7 @@ center_lat = (start_lat + dest_lat) / 2
 center_lon = (start_lon + dest_lon) / 2
 
 # Load Graph Data
-with st.spinner("⚡ Fetching Street Network & Updating Route..."):
+with st.spinner("⚡ Fetching Street Network & Calculating Route..."):
     try:
         G = load_map_graph(center_lat, center_lon, radius)
     except Exception as e:
@@ -86,9 +102,9 @@ def custom_cost(u, v, data):
 
     return cost
 
-# Get Nearest Nodes for Start and Destination
-orig_node = ox.distance.nearest_nodes(G, start_lon, start_lat)
-dest_node = ox.distance.nearest_nodes(G, dest_lon, dest_lat)
+# Get Nearest Nodes using our custom dependency-free function
+orig_node = get_nearest_node(G, start_lat, start_lon)
+dest_node = get_nearest_node(G, dest_lat, dest_lon)
 
 if orig_node and dest_node and orig_node != dest_node:
     # Calculate Paths
@@ -101,8 +117,13 @@ if orig_node and dest_node and orig_node != dest_node:
     orig_pos = (G.nodes[orig_node]['y'], G.nodes[orig_node]['x'])
     dest_pos = (G.nodes[dest_node]['y'], G.nodes[dest_node]['x'])
 
-    # Clean Tile Map (OpenStreetMap Standard Tiles - Watermark-free & Clean English Labels)
-    m = folium.Map(location=center_lat, zoom_start=16, tiles="OpenStreetMap")
+    # HD Street Map Tile (Esri World Street Map - Clean, No Watermarks, HD English Place Names)
+    m = folium.Map(
+        location=[center_lat, center_lon], 
+        zoom_start=16, 
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Street Map"
+    )
 
     # Start and Destination Markers
     folium.Marker(
@@ -130,4 +151,4 @@ if orig_node and dest_node and orig_node != dest_node:
     # Display Map
     st_folium(m, width="100%", height=550)
 else:
-    st.warning("Start and Destination points-ukku naduvula route kandupidikka mudiyala. Sidebar-la Radius-a increase pannunga.")
+    st.warning("Start & Destination points-ukku route kandupidikka mudiyala. Map Radius slider-a 700 or 800-ku increase pannunga.")
