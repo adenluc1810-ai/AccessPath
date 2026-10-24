@@ -3,9 +3,10 @@ import osmnx as ox
 import networkx as nx
 import folium
 from streamlit_folium import st_folium
+from geopy.geocoders import Nominatim
 
 # Streamlit Page Config
-st.set_page_config(page_title="AccessPath", layout="wide")
+st.set_page_config(page_title="AccessPath - Google Maps Style", layout="wide")
 
 st.title("♿ AccessPath: Uncertainty-Aware Pedestrian Route Planner")
 st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Green)**.")
@@ -15,27 +16,54 @@ ox.settings.user_agent = "AccessPathPedestrianApp/1.0"
 ox.settings.timeout = 180
 ox.settings.use_cache = True
 
-# Cached Map Graph Fetcher
+# Geocoding function to convert Place Name to Lat/Lon
+@st.cache_data(show_spinner=False)
+def get_lat_lon(place_name):
+    try:
+        geolocator = Nominatim(user_agent="AccessPathPedestrianApp/1.0")
+        location = geolocator.geocode(place_name)
+        if location:
+            return location.latitude, location.longitude
+    except Exception:
+        pass
+    return None, None
+
+# Fast Cached Map Graph Fetcher (No water crossing)
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_map_graph(lat, lon, radius):
     return ox.graph_from_point((lat, lon), dist=radius, network_type="walk", truncate_by_edge=False)
 
-# Sidebar Configuration
-st.sidebar.header("⚙️ Routing Settings")
-lat = st.sidebar.number_input("Center Latitude", value=13.0827, format="%.4f")
-lon = st.sidebar.number_input("Center Longitude", value=80.2707, format="%.4f")
-radius = st.sidebar.slider("Map Radius (meters)", min_value=300, max_value=1000, value=500, step=100)
+# Sidebar Configuration - Google Maps Style Inputs
+st.sidebar.header("📍 Route Search")
+start_place = st.sidebar.text_input("Start Location Name", value="Chennai Central, Chennai")
+dest_place = st.sidebar.text_input("Destination Name", value="Ripon Building, Chennai")
 
+radius = st.sidebar.slider("Map Radius (meters)", min_value=300, max_value=1200, value=600, step=100)
+
+st.sidebar.header("⚙️ Accessibility Weights")
 w_barrier = st.sidebar.slider("Barrier Penalty Weight (Stairs/Curb)", 50, 500, 200)
 w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0, 100, 20)
 
+# Resolve Start and Destination Coordinates
+start_lat, start_lon = get_lat_lon(start_place)
+dest_lat, dest_lon = get_lat_lon(dest_place)
+
+# Fallback to default Chennai Central if geocoding fails
+if not start_lat or not start_lon:
+    start_lat, start_lon = 13.0827, 80.2707
+if not dest_lat or not dest_lon:
+    dest_lat, dest_lon = 13.0839, 80.2725
+
+# Center calculation
+center_lat = (start_lat + dest_lat) / 2
+center_lon = (start_lon + dest_lon) / 2
+
 # Load Graph Data
-with st.spinner("⚡ Fetching Street Network..."):
+with st.spinner("⚡ Fetching Street Network & Updating Route..."):
     try:
-        G = load_map_graph(lat, lon, radius)
-        nodes = list(G.nodes())
+        G = load_map_graph(center_lat, center_lon, radius)
     except Exception as e:
-        st.error("Street network load aagala. Please refresh or try again.")
+        st.error("Street network load aagala. Radius-a increase panni try pannunga.")
         st.stop()
 
 # Custom Accessibility Cost Function
@@ -58,52 +86,48 @@ def custom_cost(u, v, data):
 
     return cost
 
-# Route Calculation and Display
-if len(nodes) >= 2:
-    orig_node = nodes[0]
-    dest_node = nodes[-1]
+# Get Nearest Nodes for Start and Destination
+orig_node = ox.distance.nearest_nodes(G, start_lon, start_lat)
+dest_node = ox.distance.nearest_nodes(G, dest_lon, dest_lat)
 
+if orig_node and dest_node and orig_node != dest_node:
+    # Calculate Paths
     shortest_path = nx.shortest_path(G, orig_node, dest_node, weight='length')
     accessible_path = nx.shortest_path(G, orig_node, dest_node, weight=custom_cost)
 
     shortest_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in shortest_path]
     accessible_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in accessible_path]
-    
+
     orig_pos = (G.nodes[orig_node]['y'], G.nodes[orig_node]['x'])
     dest_pos = (G.nodes[dest_node]['y'], G.nodes[dest_node]['x'])
 
-    # Ultra HD English Map (CartoDB Voyager - Clean & HD English Street Names)
-    m = folium.Map(
-        location=orig_pos, 
-        zoom_start=16, 
-        tiles="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-        attr="CartoDB Voyager"
-    )
+    # Clean Tile Map (OpenStreetMap Standard Tiles - Watermark-free & Clean English Labels)
+    m = folium.Map(location=center_lat, zoom_start=16, tiles="OpenStreetMap")
 
     # Start and Destination Markers
     folium.Marker(
         orig_pos, 
-        popup="📍 <b>Start Location</b>", 
-        tooltip="Start Point",
+        popup=f"📍 <b>Start:</b> {start_place}", 
+        tooltip="Start Location",
         icon=folium.Icon(color="blue", icon="play")
     ).add_to(m)
     
     folium.Marker(
         dest_pos, 
-        popup="🏁 <b>Destination Location</b>", 
-        tooltip="Destination",
+        popup=f"🏁 <b>Destination:</b> {dest_place}", 
+        tooltip="Destination Location",
         icon=folium.Icon(color="red", icon="flag")
     ).add_to(m)
 
-    # Plot Routes
-    folium.PolyLine(shortest_coords, color="#EA4335", weight=6, opacity=0.8, tooltip="Standard Shortest Path (Red)").add_to(m)
-    folium.PolyLine(accessible_coords, color="#34A853", weight=6, opacity=0.9, tooltip="Accessible Path (Green)").add_to(m)
+    # Plot Routes (Red = Shortest, Green = Accessible)
+    folium.PolyLine(shortest_coords, color="#EA4335", weight=7, opacity=0.8, tooltip="Standard Shortest Path (Red)").add_to(m)
+    folium.PolyLine(accessible_coords, color="#34A853", weight=7, opacity=0.9, tooltip="Accessible Path (Green)").add_to(m)
 
-    # Auto-Zoom
+    # Auto Zoom Fit to Route
     all_coords = shortest_coords + accessible_coords
     m.fit_bounds(all_coords)
 
     # Display Map
     st_folium(m, width="100%", height=550)
 else:
-    st.warning("Not enough nodes found. Sidebar-la Radius-a increase pannunga.")
+    st.warning("Start and Destination points-ukku naduvula route kandupidikka mudiyala. Sidebar-la Radius-a increase pannunga.")

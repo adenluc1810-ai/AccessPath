@@ -7,3 +7,4 @@ geopandas
 pandas
 matplotlib
 scipy
+geopy
