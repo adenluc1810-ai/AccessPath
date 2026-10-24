@@ -10,15 +10,15 @@ st.set_page_config(page_title="AccessPath", layout="wide")
 st.title("♿ AccessPath: Uncertainty-Aware Pedestrian Route Planner")
 st.write("Comparing **Standard Shortest Path (Red)** vs **Accessibility-Weighted Path (Green)**.")
 
-# OSMnx Speed & Connection Optimization
+# OSMnx Speed & Accuracy Optimization
 ox.settings.user_agent = "AccessPathPedestrianApp/1.0"
 ox.settings.timeout = 180
 ox.settings.use_cache = True
 
-# Fast Cached Map Graph Fetcher
+# Accurate Cached Map Graph Fetcher (Fixes walking on water issue)
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_map_graph(lat, lon, radius):
-    return ox.graph_from_point((lat, lon), dist=radius, network_type="walk", truncate_by_edge=True)
+    return ox.graph_from_point((lat, lon), dist=radius, network_type="walk", truncate_by_edge=False)
 
 # Sidebar Configuration
 st.sidebar.header("⚙️ Routing Settings")
@@ -30,7 +30,7 @@ w_barrier = st.sidebar.slider("Barrier Penalty Weight (Stairs/Curb)", 50, 500, 2
 w_uncertainty = st.sidebar.slider("Uncertainty Penalty Weight (Missing Tags)", 0, 100, 20)
 
 # Load Graph Data
-with st.spinner("⚡ Fetching OpenStreetMap Network..."):
+with st.spinner("⚡ Fetching Accurate Street Network..."):
     try:
         G = load_map_graph(lat, lon, radius)
         nodes = list(G.nodes())
@@ -48,11 +48,13 @@ def custom_cost(u, v, data):
 
     cost = length
 
+    # Barrier Penalties
     if highway == 'steps' or wheelchair == 'no':
         cost += w_barrier
     if incline in ['steep', 'up', 'down']:
         cost += w_barrier * 0.5
 
+    # Uncertainty Penalties
     if wheelchair == 'unknown':
         cost += w_uncertainty
 
@@ -67,57 +69,43 @@ if len(nodes) >= 2:
     shortest_path = nx.shortest_path(G, orig_node, dest_node, weight='length')
     accessible_path = nx.shortest_path(G, orig_node, dest_node, weight=custom_cost)
 
-    # Coords
+    # Coords for Route Visualization
     shortest_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in shortest_path]
     accessible_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in accessible_path]
     
     orig_pos = (G.nodes[orig_node]['y'], G.nodes[orig_node]['x'])
     dest_pos = (G.nodes[dest_node]['y'], G.nodes[dest_node]['x'])
 
-    # Create Map with Clean Google-style Tile (CartoDB Positron)
-    m = folium.Map(location=orig_pos, zoom_start=16, tiles="CartoDB positron")
+    # Esri World Street Map Tiles (Google Maps style - HD Street & Place names clear-a theryum, No API Key)
+    m = folium.Map(
+        location=orig_pos, 
+        zoom_start=16, 
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri World Street Map"
+    )
 
-    # Add Google Maps standard Layer option
-    folium.TileLayer(
-        tiles='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-        attr='Google Maps',
-        name='Google Maps',
-        overlay=False,
-        control=True
-    ).add_to(m)
-
-    # Add Google Satellite Layer option
-    folium.TileLayer(
-        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        attr='Google Satellite',
-        name='Google Satellite',
-        overlay=False,
-        control=True
-    ).add_to(m)
-
-    # Start and Destination Markers
+    # Start and Destination Markers with Popup Place Info
     folium.Marker(
         orig_pos, 
-        popup="<b>Start Point</b>", 
-        icon=folium.Icon(color="blue", icon="info-sign")
+        popup="📍 <b>Start Location</b>", 
+        tooltip="Start Point",
+        icon=folium.Icon(color="blue", icon="play")
     ).add_to(m)
     
     folium.Marker(
         dest_pos, 
-        popup="<b>Destination</b>", 
+        popup="🏁 <b>Destination Location</b>", 
+        tooltip="Destination",
         icon=folium.Icon(color="red", icon="flag")
     ).add_to(m)
 
-    # Plot Routes with Google Maps thick style
-    folium.PolyLine(shortest_coords, color="#EA4335", weight=7, opacity=0.8, tooltip="Standard Shortest Path").add_to(m)
-    folium.PolyLine(accessible_coords, color="#34A853", weight=7, opacity=0.9, tooltip="Accessible Path").add_to(m)
+    # Plot Routes (Red = Shortest Path, Green = Accessible Path)
+    folium.PolyLine(shortest_coords, color="#EA4335", weight=6, opacity=0.8, tooltip="Standard Shortest Path (Red)").add_to(m)
+    folium.PolyLine(accessible_coords, color="#34A853", weight=6, opacity=0.9, tooltip="Accessible Path (Green)").add_to(m)
 
-    # Auto-Zoom
+    # Auto-Zoom to exact route bounds
     all_coords = shortest_coords + accessible_coords
     m.fit_bounds(all_coords)
-
-    # Layer Control (Top Right corner-la Google Map vs Satellite choose பண்ணலாம்)
-    folium.LayerControl().add_to(m)
 
     # Display Map
     st_folium(m, width="100%", height=550)
